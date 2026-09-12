@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import tempfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, File, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
@@ -31,6 +32,8 @@ tts = TextToSpeech(provider=settings.tts_provider, voice=settings.tts_voice)
 sessions = SessionStore()
 actions = ActionEngine(kb)
 
+ALLOWED_AUDIO_EXTENSIONS = {".webm", ".wav", ".mp3", ".m4a", ".ogg", ".mp4"}
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -40,7 +43,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title=settings.app_name, version="0.2.0", lifespan=lifespan)
+app = FastAPI(title=settings.app_name, version="0.3.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
@@ -73,6 +76,7 @@ async def voice_capabilities() -> dict:
         "languages": ["en", "te", "hi", "auto"],
         "audio_upload": True,
         "streaming_transport": "websocket",
+        "max_audio_mb": settings.max_audio_mb,
     }
 
 
@@ -98,12 +102,30 @@ async def chat(request: ChatRequest) -> ChatResponse:
     return await answer_text(request)
 
 
+async def _save_upload(file: UploadFile) -> Path:
+    suffix = Path(file.filename or "audio.webm").suffix.lower() or ".webm"
+    if suffix not in ALLOWED_AUDIO_EXTENSIONS:
+        raise HTTPException(status_code=415, detail=f"Unsupported audio type: {suffix}")
+
+    limit = settings.max_audio_mb * 1024 * 1024
+    total = 0
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp_path = Path(tmp.name)
+        while True:
+            chunk = await file.read(1024 * 1024)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > limit:
+                tmp_path.unlink(missing_ok=True)
+                raise HTTPException(status_code=413, detail=f"Audio exceeds {settings.max_audio_mb} MB limit")
+            tmp.write(chunk)
+    return tmp_path
+
+
 @app.post("/api/voice/transcribe")
 async def transcribe_audio(file: UploadFile = File(...), language: str = "auto") -> dict:
-    suffix = Path(file.filename or "audio.webm").suffix or ".webm"
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        tmp.write(await file.read())
-        tmp_path = Path(tmp.name)
+    tmp_path = await _save_upload(file)
     try:
         result = await stt.transcribe(tmp_path, language=language)
         return {"success": True, **result}
@@ -128,7 +150,7 @@ async def voice_audio(filename: str):
     safe = Path(filename).name
     path = Path(settings.audio_output_dir) / safe
     if not path.exists():
-        return {"success": False, "error": "Audio not found"}
+        raise HTTPException(status_code=404, detail="Audio not found")
     return FileResponse(path, media_type="audio/wav", filename=safe)
 
 
@@ -156,8 +178,19 @@ async def voice_socket(websocket: WebSocket):
             if kind == "text":
                 user_text = str(message.get("text", "")).strip()
             elif kind == "audio_base64":
-                raw = base64.b64decode(message.get("data", ""))
-                suffix = str(message.get("extension", ".webm"))
+                try:
+                    raw = base64.b64decode(message.get("data", ""), validate=True)
+                except (binascii.Error, ValueError) as exc:
+                    await websocket.send_json({"type": "error", "message": f"Invalid base64 audio: {exc}"})
+                    continue
+                limit = settings.max_audio_mb * 1024 * 1024
+                if len(raw) > limit:
+                    await websocket.send_json({"type": "error", "message": f"Audio exceeds {settings.max_audio_mb} MB limit."})
+                    continue
+                suffix = str(message.get("extension", ".webm")).lower()
+                if suffix not in ALLOWED_AUDIO_EXTENSIONS:
+                    await websocket.send_json({"type": "error", "message": f"Unsupported audio type: {suffix}"})
+                    continue
                 with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
                     tmp.write(raw)
                     tmp_path = Path(tmp.name)
