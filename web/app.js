@@ -8,8 +8,9 @@ const clearButton = document.getElementById("clear");
 const sessionId = crypto.randomUUID ? crypto.randomUUID() : `session-${Date.now()}`;
 
 let socket = null;
-let recognition = null;
-let listening = false;
+let recorder = null;
+let chunks = [];
+let recording = false;
 
 function addMessage(role, text) {
   const item = document.createElement("div");
@@ -28,11 +29,15 @@ function connect() {
     statusEl.className = "status online";
   });
 
-  socket.addEventListener("message", (event) => {
+  socket.addEventListener("message", async (event) => {
     const message = JSON.parse(event.data);
     if (message.type === "assistant") {
+      addMessage("user", message.transcript || "Voice message");
       addMessage("assistant", message.data.reply);
-      speak(message.data.reply, message.data.language);
+      if (message.audio_url) {
+        const audio = new Audio(API_BASE + message.audio_url);
+        audio.play().catch(() => {});
+      }
     }
   });
 
@@ -51,45 +56,47 @@ function sendText() {
   input.value = "";
 }
 
-function speak(text, language) {
-  if (!("speechSynthesis" in window)) return;
-  window.speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(text);
-  const lang = language === "te" ? "te-IN" : language === "hi" ? "hi-IN" : "en-IN";
-  utterance.lang = lang;
-  utterance.rate = 0.98;
-  window.speechSynthesis.speak(utterance);
-}
-
-function setupRecognition() {
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRecognition) {
-    micButton.disabled = true;
-    document.getElementById("voiceHelp").textContent = "Browser voice recognition is unavailable here. Use typing or a browser that supports SpeechRecognition.";
+async function startRecording() {
+  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+    document.getElementById("voiceHelp").textContent = "This browser does not support microphone recording. Use the text box or a modern browser over HTTPS/localhost.";
     return;
   }
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  chunks = [];
+  recorder = new MediaRecorder(stream);
+  recorder.ondataavailable = (event) => {
+    if (event.data.size) chunks.push(event.data);
+  };
+  recorder.onstop = async () => {
+    stream.getTracks().forEach((track) => track.stop());
+    const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    }
+    if (socket?.readyState === WebSocket.OPEN) {
+      const extension = blob.type.includes("ogg") ? ".ogg" : ".webm";
+      socket.send(JSON.stringify({
+        type: "audio_base64",
+        data: btoa(binary),
+        extension,
+        language: "auto",
+      }));
+    }
+    chunks = [];
+  };
+  recorder.start();
+  recording = true;
+  micButton.textContent = "⏹ Stop & Send";
+}
 
-  recognition = new SpeechRecognition();
-  recognition.continuous = false;
-  recognition.interimResults = false;
-  recognition.lang = "en-IN";
-
-  recognition.onstart = () => {
-    listening = true;
-    micButton.textContent = "⏹ Stop";
-  };
-  recognition.onend = () => {
-    listening = false;
-    micButton.textContent = "🎙️ Voice";
-  };
-  recognition.onerror = () => {
-    listening = false;
-    micButton.textContent = "🎙️ Voice";
-  };
-  recognition.onresult = (event) => {
-    input.value = event.results[0][0].transcript;
-    sendText();
-  };
+function stopRecording() {
+  if (recorder && recorder.state !== "inactive") {
+    recorder.stop();
+  }
+  recording = false;
+  micButton.textContent = "🎙️ Voice";
 }
 
 sendButton.addEventListener("click", sendText);
@@ -104,11 +111,11 @@ input.addEventListener("keydown", (event) => {
   }
 });
 micButton.addEventListener("click", () => {
-  if (!recognition) return;
-  if (listening) recognition.stop();
-  else recognition.start();
+  if (recording) stopRecording();
+  else startRecording().catch(() => {
+    document.getElementById("voiceHelp").textContent = "Microphone permission was not granted or is unavailable.";
+  });
 });
 
 connect();
-setupRecognition();
 addMessage("assistant", "Namaskaram! I’m your AI admissions counsellor. Which course or admission detail can I help you with?");
