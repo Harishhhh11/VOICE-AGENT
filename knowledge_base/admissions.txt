@@ -1,0 +1,22 @@
+SAMPLE KNOWLEDGE BASE
+
+IMPORTANT: Replace this sample content with the institution's real information before production.
+
+Admissions
+- The counsellor should collect the student's preferred course, qualification, learning mode, and preferred intake before recommending a next step.
+- Never invent admission deadlines or seat availability.
+- If a deadline or seat count is not present in the knowledge base, offer a human counsellor callback.
+
+Courses
+- Add each real course here with official course name, duration, eligibility, delivery mode, curriculum highlights, project details, and applicable intake.
+
+Fees
+- Add the official fee structure here.
+- Do not state a fee, discount, EMI, scholarship, or refund policy unless it is present in the official knowledge base.
+
+Placement
+- Add only verified placement assistance information and approved statistics here.
+- Do not promise a job or guaranteed salary.
+
+Contact
+- Add official counselling office phone number, email, address, counselling timings, and escalation contact here.
