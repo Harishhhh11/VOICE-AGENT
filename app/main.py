@@ -28,7 +28,14 @@ stt = SpeechToText(
     device=settings.whisper_device,
     compute_type=settings.whisper_compute_type,
 )
-tts = TextToSpeech(provider=settings.tts_provider, voice=settings.tts_voice)
+tts = TextToSpeech(
+    provider=settings.tts_provider,
+    voices={
+        "en": settings.tts_voice_en,
+        "hi": settings.tts_voice_hi,
+        "te": settings.tts_voice_te,
+    },
+)
 sessions = SessionStore()
 actions = ActionEngine(kb)
 
@@ -43,7 +50,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title=settings.app_name, version="0.3.0", lifespan=lifespan)
+app = FastAPI(title=settings.app_name, version="0.4.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
@@ -70,9 +77,21 @@ async def health() -> HealthResponse:
 
 @app.get("/api/voice-capabilities")
 async def voice_capabilities() -> dict:
+    voices = {
+        "en": settings.tts_voice_en,
+        "hi": settings.tts_voice_hi,
+        "te": settings.tts_voice_te,
+    }
     return {
         "stt": {"provider": "faster-whisper", "loaded": stt.loaded, "model": settings.whisper_model},
-        "tts": {"provider": settings.tts_provider, "available": tts.available},
+        "tts": {
+            "provider": settings.tts_provider,
+            "available": tts.available,
+            "voices": {
+                language: {"path": path, "available": tts.available_for_language(language)}
+                for language, path in voices.items()
+            },
+        },
         "languages": ["en", "te", "hi", "auto"],
         "audio_upload": True,
         "streaming_transport": "websocket",
@@ -137,9 +156,10 @@ async def transcribe_audio(file: UploadFile = File(...), language: str = "auto")
 async def voice_respond(request: ChatRequest) -> dict:
     response = await answer_text(request)
     audio = None
-    if tts.available:
+    language = response.language
+    if tts.available_for_language(language):
         output = Path(settings.audio_output_dir) / f"{request.session_id.replace('/', '_')}.wav"
-        result = await tts.synthesize_wav(response.reply, output)
+        result = await tts.synthesize_wav(response.reply, output, language=language)
         if result.get("available") and result.get("path"):
             audio = f"/api/voice/audio/{output.name}"
     return {"success": True, "data": response.model_dump(), "audio_url": audio}
@@ -175,6 +195,7 @@ async def voice_socket(websocket: WebSocket):
         while True:
             message = await websocket.receive_json()
             kind = message.get("type")
+            detected_language = message.get("language", "auto")
             if kind == "text":
                 user_text = str(message.get("text", "")).strip()
             elif kind == "audio_base64":
@@ -197,6 +218,7 @@ async def voice_socket(websocket: WebSocket):
                 try:
                     result = await stt.transcribe(tmp_path, language=message.get("language", "auto"))
                     user_text = result["text"].strip()
+                    detected_language = result.get("language") or detected_language
                 finally:
                     tmp_path.unlink(missing_ok=True)
             else:
@@ -207,18 +229,21 @@ async def voice_socket(websocket: WebSocket):
                 await websocket.send_json({"type": "empty"})
                 continue
 
-            request = ChatRequest(message=user_text, session_id=session_id, language=message.get("language", "auto"))
+            if detected_language not in {"en", "hi", "te", "auto"}:
+                detected_language = "auto"
+            request = ChatRequest(message=user_text, session_id=session_id, language=detected_language)
             response = await answer_text(request)
             audio_url = None
-            if tts.available:
+            if tts.available_for_language(response.language):
                 output = Path(settings.audio_output_dir) / f"{session_id.replace('/', '_')}.wav"
-                result = await tts.synthesize_wav(response.reply, output)
+                result = await tts.synthesize_wav(response.reply, output, language=response.language)
                 if result.get("available"):
                     audio_url = f"/api/voice/audio/{output.name}"
             await websocket.send_json({
                 "type": "assistant",
                 "data": response.model_dump(),
                 "transcript": user_text,
+                "detected_language": response.language,
                 "audio_url": audio_url,
             })
     except WebSocketDisconnect:
