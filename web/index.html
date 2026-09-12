@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI Voice Counsellor</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div>
+        <p class="eyebrow">VOICE-AGENT</p>
+        <h1>AI Voice Counsellor</h1>
+        <p class="subtitle">Ask about courses, admissions, eligibility, fees and next steps.</p>
+      </div>
+      <span id="status" class="status">Connecting…</span>
+    </section>
+
+    <section class="panel">
+      <div id="messages" class="messages" aria-live="polite"></div>
+      <div class="controls">
+        <label class="sr-only" for="message">Message</label>
+        <textarea id="message" rows="2" placeholder="Type in English, Telugu, Hindi, or code-mixed language…"></textarea>
+        <div class="buttons">
+          <button id="send" class="primary">Send</button>
+          <button id="mic">🎙️ Voice</button>
+          <button id="clear">Clear</button>
+        </div>
+      </div>
+      <p id="voiceHelp" class="hint">Voice mode uses your browser speech recognition when available; typed chat always works.</p>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
