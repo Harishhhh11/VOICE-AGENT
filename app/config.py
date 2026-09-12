@@ -25,7 +25,9 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5500,http://127.0.0.1:5500,http://localhost:8000"
 
     tts_provider: str = "piper"
-    tts_voice: str = ""
+    tts_voice_en: str = "./models/tts/en/en_US-lessac-medium.onnx"
+    tts_voice_hi: str = "./models/tts/hi/hi_IN-priyamvada-medium.onnx"
+    tts_voice_te: str = "./models/tts/te/te_IN-padmavathi-medium.onnx"
     tts_language: str = "auto"
     audio_output_dir: str = "./data/audio"
     max_audio_mb: int = 15
