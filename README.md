@@ -2,17 +2,19 @@
 
 Advanced local-first AI Voice Counsellor for admissions, lead qualification, FAQ answering, counselling booking, and future telephony.
 
-## Project goals
+## What is included
 
-- Natural English, Telugu, and Hindi conversations
-- Code-mixed Indian speech support
+- English, Telugu, and Hindi conversation routing
+- Code-mixed Indian speech support through multilingual STT/LLM
 - Local speech-to-text with faster-whisper
 - Local LLM through Ollama
-- Knowledge-grounded answers with RAG
-- Lead capture and counselling workflow
-- Browser voice interface first; telephony-ready architecture later
-- No mandatory paid API dependency for the core development stack
-- Production-ready separation between voice, AI, knowledge, and business logic
+- Knowledge-grounded answers using local embeddings + FAISS
+- Lead capture and counselling workflow abstractions
+- Browser microphone transport over WebSocket
+- Local TTS adapter using Piper
+- SQLite development database
+- Docker and CI configuration
+- Telephony-ready service boundaries for a later Asterisk/FreeSWITCH integration
 
 ## Architecture
 
@@ -23,12 +25,12 @@ Browser microphone
  FastAPI backend
       |
       +--> Voice pipeline
-      |      +--> VAD / turn detection
+      |      +--> browser audio capture
       |      +--> faster-whisper STT
       |      +--> conversation manager
       |      +--> Ollama LLM
       |      +--> RAG knowledge retrieval
-      |      +--> local TTS adapter
+      |      +--> Piper local TTS
       |
       +--> Business tools
       |      +--> course details
@@ -42,52 +44,125 @@ Browser microphone
       +--> SQLite (development) / PostgreSQL (production)
 ```
 
-## Current stack
+## Local stack
 
 - Python 3.11+
 - FastAPI + Uvicorn
-- Pydantic Settings
 - faster-whisper
 - Ollama
-- SQLite for local development
-- sentence-transformers + FAISS for local retrieval
-- WebSocket browser voice transport
+- sentence-transformers + FAISS
+- Piper TTS
+- SQLite
 
-The voice/TTS layer is intentionally adapter-based so a local Indic TTS engine can be plugged in without changing the rest of the application.
+The core development stack does not require paid API keys.
 
-## Quick start
+## Setup
 
-1. Install Python 3.11 or newer.
-2. Install Ollama and pull a suitable multilingual model, for example:
+### 1. Clone
 
 ```bash
-ollama pull qwen3:8b
+git clone https://github.com/Harishhhh11/VOICE-AGENT.git
+cd VOICE-AGENT
 ```
 
-3. Clone this repository.
-4. Create a virtual environment.
-5. Install dependencies:
+### 2. Python environment
+
+```bash
+python -m venv .venv
+```
+
+Windows:
+
+```bash
+.venv\\Scripts\\activate
+```
+
+macOS/Linux:
+
+```bash
+source .venv/bin/activate
+```
+
+Install dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-6. Copy `.env.example` to `.env` and adjust values.
-7. Start the API:
+### 3. Ollama
+
+Install Ollama and pull the configured model:
+
+```bash
+ollama pull qwen3:8b
+```
+
+Make sure Ollama is running before testing chat.
+
+### 4. Piper TTS
+
+Install a local Piper runtime and download a compatible `.onnx` voice model. Store the model somewhere outside the repository and set its absolute path in `.env`:
+
+```text
+TTS_PROVIDER=piper
+TTS_VOICE=C:\\path\\to\\your\\piper-voice.onnx
+```
+
+For Telugu/Hindi/Indian-English voice quality, choose an appropriate Piper voice model for the target language. The application does not download voices automatically.
+
+### 5. Environment
+
+Copy `.env.example` to `.env` and adjust values as needed.
+
+### 6. Start backend
 
 ```bash
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-8. Open the web client from `web/index.html` through a local static server.
+### 7. Serve the browser UI
+
+Use any local static server for `web/`. For example:
+
+```bash
+python -m http.server 5500 --directory web
+```
+
+Then open:
+
+```text
+http://127.0.0.1:5500
+```
+
+Allow microphone access when prompted.
+
+## Test endpoints
+
+Open FastAPI docs:
+
+```text
+http://localhost:8000/docs
+```
+
+Health:
+
+```text
+http://localhost:8000/health
+```
+
+Voice capabilities:
+
+```text
+http://localhost:8000/api/voice-capabilities
+```
 
 ## Knowledge base
 
-Put institution-specific documents in `knowledge_base/`. The repository includes only a small sample dataset. Replace it with the real course, fees, eligibility, placement, admission, batch, and contact information before using the system for real prospects.
+Put institution-specific documents in `knowledge_base/`. Replace the sample data with real course, fees, eligibility, placement, admission, batch, and contact information before using the system with prospects.
 
-The assistant is instructed not to invent institution-specific facts. Missing facts are escalated rather than guessed.
+The assistant is instructed not to invent institution-specific facts. Missing facts should be escalated instead of guessed.
 
-## Deployment path
+## Production path
 
 Development:
 
@@ -95,7 +170,7 @@ Development:
 Laptop -> local AI services -> browser
 ```
 
-Public web deployment:
+Public web:
 
 ```text
 Domain -> reverse proxy -> FastAPI -> local/model services -> database
@@ -107,12 +182,14 @@ Telephony later:
 SIP/telephony provider -> Asterisk/FreeSWITCH -> voice service -> AI pipeline
 ```
 
-Telephony carriers and SIP providers may incur separate costs even though the application stack is open source.
+Open-source software does not remove telecom carrier/SIP charges.
 
 ## Security
 
-Never commit API keys, database credentials, customer data, recordings, or `.env` files.
+Never commit API keys, database credentials, customer data, recordings, `.env` files, or local model files.
+
+Audio uploads are bounded by `MAX_AUDIO_MB` and only a small allow-list of common media extensions is accepted.
 
 ## Status
 
-Initial production-oriented scaffold. Replace sample knowledge and tune local model/TTS choices for the target hardware before production rollout.
+The repository contains the deployable application foundation and local voice loop. Before public production use, validate the chosen local STT/LLM/TTS models on the actual server hardware, replace the sample knowledge base, move production data to PostgreSQL, add authentication/rate limits, and configure HTTPS/reverse proxying.
