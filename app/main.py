@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import logging
 import tempfile
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -21,6 +22,9 @@ from .stt import SpeechToText
 from .tts import TextToSpeech
 
 settings = get_settings()
+logging.basicConfig(level=getattr(logging, settings.log_level.upper(), logging.INFO))
+logger = logging.getLogger("voice-agent")
+
 kb = KnowledgeBase()
 llm = OllamaClient()
 stt = SpeechToText(
@@ -106,6 +110,7 @@ async def answer_text(request: ChatRequest) -> ChatResponse:
     try:
         reply = await llm.chat(request.message, context, conversation.history[-settings.max_history_turns:])
     except Exception:
+        logger.exception("Ollama chat request failed for session %s", request.session_id)
         reply = (
             "I’m sorry, I’m unable to reach the local AI model right now. "
             "Please make sure Ollama is running and try again."
