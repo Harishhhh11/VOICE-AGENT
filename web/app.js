@@ -38,6 +38,8 @@ function connect() {
         const audio = new Audio(API_BASE + message.audio_url);
         audio.play().catch(() => {});
       }
+    } else if (message.type === "error") {
+      addMessage("assistant", `Voice error: ${message.message}`);
     }
   });
 
@@ -51,7 +53,6 @@ function connect() {
 function sendText() {
   const text = input.value.trim();
   if (!text || !socket || socket.readyState !== WebSocket.OPEN) return;
-  addMessage("user", text);
   socket.send(JSON.stringify({ type: "text", text, language: "auto" }));
   input.value = "";
 }
