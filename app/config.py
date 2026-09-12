@@ -24,10 +24,11 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./voice_agent.db"
     cors_origins: str = "http://localhost:5500,http://127.0.0.1:5500,http://localhost:8000"
 
-    tts_provider: str = "placeholder"
+    tts_provider: str = "piper"
     tts_voice: str = ""
     tts_language: str = "auto"
     audio_output_dir: str = "./data/audio"
+    max_audio_mb: int = 15
 
     max_history_turns: int = 12
     confidence_threshold: float = 0.55
