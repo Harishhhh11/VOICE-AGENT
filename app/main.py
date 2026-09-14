@@ -44,6 +44,30 @@ sessions = SessionStore()
 actions = ActionEngine(kb)
 
 ALLOWED_AUDIO_EXTENSIONS = {".webm", ".wav", ".mp3", ".m4a", ".ogg", ".mp4"}
+SUPPORTED_LANGUAGES = {"en", "hi", "te", "auto"}
+
+
+def detect_text_language(text: str, requested_language: str = "auto") -> str:
+    """Resolve explicit language or detect common Indian scripts for typed text."""
+    requested = (requested_language or "auto").lower().split("-")[0].split("_")[0]
+    if requested in {"en", "hi", "te"}:
+        return requested
+
+    telugu = devanagari = latin = 0
+    for char in text:
+        code = ord(char)
+        if 0x0C00 <= code <= 0x0C7F:
+            telugu += 1
+        elif 0x0900 <= code <= 0x097F:
+            devanagari += 1
+        elif ("A" <= char <= "Z") or ("a" <= char <= "z"):
+            latin += 1
+
+    if telugu and telugu >= devanagari:
+        return "te"
+    if devanagari:
+        return "hi"
+    return "en" if latin or text.strip() else "auto"
 
 
 @asynccontextmanager
@@ -105,6 +129,7 @@ async def voice_capabilities() -> dict:
 
 async def answer_text(request: ChatRequest) -> ChatResponse:
     conversation = sessions.get(request.session_id)
+    language = detect_text_language(request.message, request.language)
     actions.extract_contact(request.session_id, request.message)
     context, sources = kb.format_context(request.message)
     try:
@@ -117,8 +142,8 @@ async def answer_text(request: ChatRequest) -> ChatResponse:
         )
     conversation.add("user", request.message)
     conversation.add("assistant", reply)
-    conversation.language = request.language
-    return ChatResponse(session_id=request.session_id, reply=reply, language=request.language, sources=sources)
+    conversation.language = language
+    return ChatResponse(session_id=request.session_id, reply=reply, language=language, sources=sources)
 
 
 @app.post("/api/chat", response_model=ChatResponse)
@@ -203,6 +228,7 @@ async def voice_socket(websocket: WebSocket):
             detected_language = message.get("language", "auto")
             if kind == "text":
                 user_text = str(message.get("text", "")).strip()
+                detected_language = detect_text_language(user_text, detected_language)
             elif kind == "audio_base64":
                 try:
                     raw = base64.b64decode(message.get("data", ""), validate=True)
@@ -234,7 +260,7 @@ async def voice_socket(websocket: WebSocket):
                 await websocket.send_json({"type": "empty"})
                 continue
 
-            if detected_language not in {"en", "hi", "te", "auto"}:
+            if detected_language not in SUPPORTED_LANGUAGES:
                 detected_language = "auto"
             request = ChatRequest(message=user_text, session_id=session_id, language=detected_language)
             response = await answer_text(request)
